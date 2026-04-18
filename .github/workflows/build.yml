@@ -18,6 +18,8 @@ jobs:
           if [ -f project.zip ]; then
             unzip -o project.zip
             rm project.zip
+          else
+            echo "File project.zip tidak ditemukan di root."
           fi
 
       - name: Setup Java
@@ -35,45 +37,34 @@ jobs:
 
       - name: Build APK Release
         run: |
-          # 1. Cari root project
+          # Cari lokasi pubspec.yaml
           FLUTTER_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
+          if [ -z "$FLUTTER_ROOT" ]; then echo "Project Flutter tidak ditemukan!"; exit 1; fi
           cd "$FLUTTER_ROOT"
 
-          # 2. SCRIPT SAKTI: Fix Android Manifest v2 secara Aman
+          # FIX V2 EMBEDDING (Gunakan Python agar aman dari error karakter)
           MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST_PATH" ]; then
             python3 -c "
 import os
 path = '$MANIFEST_PATH'
 with open(path, 'r') as f:
-    content = f.read()
-
-# Ganti Application name
-content = content.replace('io.flutter.app.FlutterApplication', 'android.app.Application')
-
-# Tambahkan v2 embedding jika belum ada
-if 'flutterEmbedding' not in content:
-    # Sisipkan tepat sebelum tag penutup activity
-    content = content.replace('</activity>', '    <meta-data android:name=\"flutterEmbedding\" android:value=\"2\" />\n        </activity>')
-
+    data = f.read()
+data = data.replace('io.flutter.app.FlutterApplication', 'android.app.Application')
+if 'flutterEmbedding' not in data:
+    data = data.replace('</activity>', '    <meta-data android:name=\"flutterEmbedding\" android:value=\"2\" />\n        </activity>')
 with open(path, 'w') as f:
-    f.write(content)
+    f.write(data)
 "
-            echo "✅ Manifest fixed successfully."
           fi
 
-          # 3. Clean dan Build
           flutter pub get
           cd android && chmod +x gradlew && ./gradlew clean && cd ..
           flutter build apk --release
 
-          # 4. Export Path
-          FINAL_PATH=$(find build/app/outputs/flutter-apk/ -name "app-release.apk" | head -n 1)
-          if [ -n "$FINAL_PATH" ]; then
-            echo "FINAL_APK_PATH=$(pwd)/$FINAL_PATH" >> $GITHUB_ENV
-          else
-            echo "❌ Build failed: APK not found." && exit 1
-          fi
+          # Simpan path APK
+          APK_FILE=$(find build/app/outputs/flutter-apk/ -name "app-release.apk" | head -n 1)
+          echo "FINAL_APK_PATH=$APK_FILE" >> $GITHUB_ENV
 
       - name: Send APK to Telegram
         if: success()
@@ -82,12 +73,11 @@ with open(path, 'w') as f:
           "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
           -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -F parse_mode="Markdown" \
-          -F "caption=✅ **BUILD SUKSES!**%0A📦 Project berhasil dikonversi ke APK."
+          -F "caption=✅ **BUILD SUKSES!**"
 
-      - name: Send Error Notification
+      - name: Notify Failure
         if: failure()
         run: |
           curl -s -X POST "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="❌ **BUILD GAGAL!**%0ASilakan cek log di GitHub Actions untuk detailnya."
-
+          -d text="❌ **BUILD GAGAL!** Periksa log di GitHub."
