@@ -19,7 +19,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '11'
+          java-version: '17' # UPGRADE KE 17 UNTUK FIX ERROR GROOVY JSON
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -35,14 +35,15 @@ jobs:
 
       - name: Build APK Release
         run: |
-          # Cari root project
           PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
           cd "$PROJECT_ROOT"
           
-          # MENGHAPUS --no-sound-null-safety karena tidak didukung di Flutter 3.19.0
+          # Hapus cache gradle lama agar tidak konflik
+          cd android && ./gradlew clean && cd ..
+          
+          # Build APK tanpa flag null-safety yang sudah tidak didukung
           flutter build apk --release --ignore-deprecation
           
-          # Simpan lokasi APK ke variable global
           echo "FINAL_APK_PATH=$(find $(pwd)/build/app/outputs/flutter-apk/ -name "*.apk" | grep "release" | head -n 1)" >> $GITHUB_ENV
 
       - name: Send APK to Telegram
