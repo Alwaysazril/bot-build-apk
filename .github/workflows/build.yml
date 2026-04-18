@@ -1,37 +1,48 @@
-name: Remote Build APK
+name: Flutter Build APK
 on:
-  push:
-    branches: [ "main" ]
+  repository_dispatch:
+    types: [telegram_build]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
       
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
-          
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          
+          flutter-version: '3.19.0'
+
       - name: Install Dependencies
         run: flutter pub get
-        
-      - name: Build APK
-        run: flutter build apk --release
-        
-      - name: Send APK to Telegram
+
+      - name: Build APK Release
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Get APK Info
+        id: info
         run: |
-          # Mencari lokasi file APK secara otomatis agar tidak salah path
-          APK_PATH=$(find build/app/outputs/flutter-apk -name "*.apk" | head -n 1)
+          size=$(du -h build/app/outputs/flutter-apk/app-release.apk | cut -f1)
+          echo "apk_size=$size" >> $GITHUB_OUTPUT
+
+      - name: Send to Telegram
+        run: |
+          curl -F document=@"build/app/outputs/flutter-apk/app-release.apk" \
+          -F caption="✅ **BUILD SELESAI!**
           
-          curl -v -F "chat_id=5914076434" \
-               -F "document=@$APK_PATH" \
-               -F "caption=✅ Build Selesai!" \
-               https://api.telegram.org/bot8434117840:AAGyQrdg6U8_kVv8W5PIwfc6azxMJahDpfg/sendDocument
+          📝 **Detail Info:**
+          • **Tipe:** Release APK
+          • **Arsitektur:** v7a, v8a, x86_64
+          • **Ukuran:** ${{ steps.info.outputs.apk_size }}
+          • **Status:** Signed & Optimized
+          
+          Silakan download file di atas." \
+          https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument?chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&parse_mode=Markdown
