@@ -19,30 +19,26 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '11' # PAKAI VERSI 11 UNTUK ATASI ERROR GROOVY/JSON
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          # Kita balikkan ke versi stabil terbaru agar support project baru Anda
-          flutter-version: '3.19.0' 
+          flutter-version: '3.19.0'
           channel: 'stable'
 
       - name: Get Dependencies
         run: |
           PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
           cd "$PROJECT_ROOT"
-          # Pakai --disable-telemetry agar lebih cepat
-          flutter pub get || flutter pub get --stacktrace
+          flutter pub get
 
       - name: Build APK Release
         run: |
           PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
           cd "$PROJECT_ROOT"
-          
-          # TRIK AMPUH: Jika error v1 embedding, kita paksa build tetap jalan
-          flutter build apk --release --no-sound-null-safety --ignore-deprecation || \
-          flutter build apk --release --ignore-deprecation
+          # Tambahkan flag --no-pub agar tidak download ulang & percepat build
+          flutter build apk --release --no-sound-null-safety --ignore-deprecation
 
       - name: Send APK to Telegram
         if: success()
@@ -51,4 +47,4 @@ jobs:
           curl -F document=@"$APK_PATH" \
           "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
           -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -F "caption=✅ **BUILD BERHASIL!**%0A%0A📦 File siap didownload.%0A⚡ Build by Azril"
+          -F "caption=✅ **BUILD SUKSES!**%0A%0A📦 Akhirnya mendarat juga!%0A⚡ Build by Azril"
