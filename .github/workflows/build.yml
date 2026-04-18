@@ -15,10 +15,9 @@ jobs:
       - name: Extract Project Zip
         run: |
           if [ -f "project.zip" ]; then
-            echo "Mengekstrak project.zip..."
             unzip -o project.zip
           else
-            echo "Error: project.zip tidak ditemukan di repository!"
+            echo "Error: project.zip tidak ditemukan!"
             exit 1
           fi
 
@@ -26,20 +25,19 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '11' # Versi Java 11 lebih cocok untuk Flutter 2.x
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: '2.10.5' # Menggunakan versi lama agar support v1 embedding
           channel: 'stable'
 
       - name: Get Dependencies
         run: |
-          # Cari folder yang berisi pubspec.yaml (antisipasi jika zip berisi subfolder)
           PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
           if [ -z "$PROJECT_ROOT" ]; then
-            echo "Error: pubspec.yaml tidak ditemukan di dalam ZIP!"
+            echo "Error: pubspec.yaml tidak ditemukan!"
             exit 1
           fi
           cd "$PROJECT_ROOT"
@@ -49,12 +47,12 @@ jobs:
         run: |
           PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
           cd "$PROJECT_ROOT"
-          flutter build apk --release
+          # Menggunakan --no-sound-null-safety jika proyek Anda sangat lama
+          flutter build apk --release --no-sound-null-safety
 
       - name: Send APK to Telegram
         run: |
-          # Mencari file APK secara dinamis
-          APK_PATH=$(find . -name "app-release.apk" | head -n 1)
+          APK_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
           
           if [ -z "$APK_PATH" ]; then
             echo "Error: File APK tidak ditemukan!"
@@ -64,4 +62,4 @@ jobs:
           curl -F document=@"$APK_PATH" \
           "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
           -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -F "caption=✅ **Build Selesai!**%0A%0A📦 File: app-release.apk%0A⚡ Build by Web2Apk Azril"
+          -F "caption=✅ **Build Selesai (Legacy Mode)!**%0A%0A📦 Proyek lama berhasil dikonversi.%0A⚡ Build by Web2Apk Azril"
