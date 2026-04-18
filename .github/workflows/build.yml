@@ -1,75 +1,66 @@
 name: Flutter Build APK
 
 on:
-repository_dispatch:
-types: [telegram_build]
+  repository_dispatch:
+    types: [telegram_build]
+  workflow_dispatch: # Agar bisa dijalankan manual untuk testing
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-```
-steps:
-  - name: Checkout Repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-  - name: Extract Project Zip
-    run: unzip -o project.zip
+      - name: Extract Project Zip
+        run: |
+          if [ -f project.zip ]; then
+            unzip -o project.zip
+          else
+            echo "Warning: project.zip not found, skipping unzip."
+          fi
 
-  - name: Locate Project Root
-    id: find_project
-    run: |
-      PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
-      echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17' # Java 17 lebih stabil untuk Gradle 7.x/8.x
 
-  - name: Setup Java 17
-    uses: actions/setup-java@v4
-    with:
-      distribution: 'temurin'
-      java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
 
-  - name: Setup Flutter
-    uses: subosito/flutter-action@v2
-    with:
-      flutter-version: '3.22.0'
-      channel: 'stable'
-      cache: true
+      - name: Build APK Release
+        run: |
+          # Cari lokasi folder android
+          PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
+          cd "$PROJECT_ROOT"
+          
+          flutter pub get
+          
+          # Bersihkan cache gradle untuk fix error "unable to resolve class JsonGenerator"
+          cd android
+          chmod +x gradlew
+          ./gradlew clean
+          cd ..
+          
+          # Build APK
+          flutter build apk --release
+          
+          # Cari path APK dan simpan ke environment variable
+          APK_PATH=$(find build/app/outputs/flutter-apk/ -name "app-release.apk" | head -n 1)
+          echo "FINAL_APK_PATH=$APK_PATH" >> $GITHUB_ENV
 
-  - name: Clean Gradle Cache (Fix Groovy Error)
-    run: |
-      rm -rf ~/.gradle/caches
-      rm -rf ~/.gradle/wrapper
-
-  - name: Get Dependencies
-    run: |
-      cd "$PROJECT_ROOT"
-      flutter pub get
-
-  - name: Fix Gradle Version (IMPORTANT)
-    run: |
-      cd "$PROJECT_ROOT/android"
-      
-      # Paksa pakai Gradle terbaru biar support JsonGenerator
-      sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-all.zip#g' gradle/wrapper/gradle-wrapper.properties
-
-  - name: Build APK Release
-    run: |
-      cd "$PROJECT_ROOT"
-      
-      # Clean project
-      flutter clean
-      
-      # Build APK
-      flutter build apk --release
-      
-      APK_PATH=$(find build/app/outputs/flutter-apk/ -name "*release.apk" | head -n 1)
-      echo "FINAL_APK_PATH=$APK_PATH" >> $GITHUB_ENV
-
-  - name: Send APK to Telegram
-    if: success()
-    run: |
-      curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
-      -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-      -F document=@"${{ env.FINAL_APK_PATH }}" \
-      -F caption="✅ BUILD SUKSES! 🚀"
-```
+      - name: Send APK to Telegram
+        if: success()
+        run: |
+          # Perbaikan URL: Harus pakai /bot<token>/ dan endpoint /sendDocument
+          curl -v -F document=@"${{ env.FINAL_APK_PATH }}" \
+          "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -F parse_mode="Markdown" \
+          -F "caption=✅ *BUILD SUKSES!*%0A%0A📦 Akhirnya mendarat juga!%0A⚡ Build by Azril"
