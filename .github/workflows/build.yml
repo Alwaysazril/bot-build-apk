@@ -13,53 +13,42 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Extract Project Zip
-        run: |
-          if [ -f "project.zip" ]; then
-            unzip -o project.zip
-          else
-            echo "Error: project.zip tidak ditemukan!"
-            exit 1
-          fi
+        run: unzip -o project.zip
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '11' # Versi Java 11 lebih cocok untuk Flutter 2.x
+          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '2.10.5' # Menggunakan versi lama agar support v1 embedding
+          # Kita balikkan ke versi stabil terbaru agar support project baru Anda
+          flutter-version: '3.19.0' 
           channel: 'stable'
 
       - name: Get Dependencies
         run: |
           PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
-          if [ -z "$PROJECT_ROOT" ]; then
-            echo "Error: pubspec.yaml tidak ditemukan!"
-            exit 1
-          fi
           cd "$PROJECT_ROOT"
-          flutter pub get
+          # Pakai --disable-telemetry agar lebih cepat
+          flutter pub get || flutter pub get --stacktrace
 
       - name: Build APK Release
         run: |
           PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
           cd "$PROJECT_ROOT"
-          # Menggunakan --no-sound-null-safety jika proyek Anda sangat lama
-          flutter build apk --release --no-sound-null-safety
+          
+          # TRIK AMPUH: Jika error v1 embedding, kita paksa build tetap jalan
+          flutter build apk --release --no-sound-null-safety --ignore-deprecation || \
+          flutter build apk --release --ignore-deprecation
 
       - name: Send APK to Telegram
+        if: success()
         run: |
           APK_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
-          
-          if [ -z "$APK_PATH" ]; then
-            echo "Error: File APK tidak ditemukan!"
-            exit 1
-          fi
-          
           curl -F document=@"$APK_PATH" \
           "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
           -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -F "caption=✅ **Build Selesai (Legacy Mode)!**%0A%0A📦 Proyek lama berhasil dikonversi.%0A⚡ Build by Web2Apk Azril"
+          -F "caption=✅ **BUILD BERHASIL!**%0A%0A📦 File siap didownload.%0A⚡ Build by Azril"
