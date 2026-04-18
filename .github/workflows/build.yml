@@ -10,10 +10,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4 # Update ke v4 lebih stabil
+        uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v4 # Update ke v4
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -25,28 +25,31 @@ jobs:
           channel: 'stable'
 
       - name: Get Dependencies
-        # Menambahkan 'recursive' atau mencari folder yang ada pubspec.yaml
         run: |
-          if [ -f "pubspec.yaml" ]; then
-            flutter pub get
-          else
-            cd $(find . -name "pubspec.yaml" -printf '%h' -quit)
-            flutter pub get
+          # Mencari lokasi pubspec.yaml secara otomatis
+          PUBSPEC_PATH=$(find . -name "pubspec.yaml" -printf '%h' -quit)
+          if [ -z "$PUBSPEC_PATH" ]; then
+            echo "❌ Error: pubspec.yaml tidak ditemukan!"
+            exit 1
           fi
+          echo "✅ Project ditemukan di: $PUBSPEC_PATH"
+          cd "$PUBSPEC_PATH"
+          flutter pub get
 
       - name: Build APK Release
         run: |
-          # Memastikan build berjalan di folder yang benar
-          if [ -f "pubspec.yaml" ]; then
-            flutter build apk --release
-          else
-            cd $(find . -name "pubspec.yaml" -printf '%h' -quit)
-            flutter build apk --release
-          fi
+          PUBSPEC_PATH=$(find . -name "pubspec.yaml" -printf '%h' -quit)
+          cd "$PUBSPEC_PATH"
+          flutter build apk --release
 
       - name: Send APK to Telegram
         run: |
-          # Mencari file APK secara dinamis agar tidak error jika path berbeda
-          APK_PATH=$(find build/app/outputs/flutter-apk/ -name "*.apk" | head -n 1)
-          curl -F document=@"$APK_PATH" \
+          # Mencari file APK di folder build manapun
+          APK_FILE=$(find . -name "app-release.apk" | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            echo "❌ Error: File APK tidak ditemukan!"
+            exit 1
+          fi
+          echo "✅ Mengirim APK: $APK_FILE"
+          curl -F document=@"$APK_FILE" \
           "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument?chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&caption=✅ **Build Selesai!**%0A%0A📦 File: app-release.apk%0A⚡ Build by Web2Apk Azril"
