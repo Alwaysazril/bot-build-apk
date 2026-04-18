@@ -3,7 +3,7 @@ name: Flutter Build APK
 on:
   repository_dispatch:
     types: [telegram_build]
-  workflow_dispatch: # Agar bisa dijalankan manual untuk testing
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,15 +17,17 @@ jobs:
         run: |
           if [ -f project.zip ]; then
             unzip -o project.zip
+            # Menghapus zip setelah ekstrak agar tidak ikut ter-scan nantinya
+            rm project.zip
           else
-            echo "Warning: project.zip not found, skipping unzip."
+            echo "Warning: project.zip not found."
           fi
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17' # Java 17 lebih stabil untuk Gradle 7.x/8.x
+          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -36,31 +38,53 @@ jobs:
 
       - name: Build APK Release
         run: |
-          # Cari lokasi folder android
-          PROJECT_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
-          cd "$PROJECT_ROOT"
-          
+          # 1. Cari root project Flutter (di mana ada pubspec.yaml)
+          FLUTTER_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
+          if [ -z "$FLUTTER_ROOT" ]; then
+            echo "ERROR: pubspec.yaml tidak ditemukan! Pastikan isi zip benar."
+            exit 1
+          fi
+          cd "$FLUTTER_ROOT"
+          echo "Bekerja di direktori: $(pwd)"
+
+          # 2. Get Dependencies
           flutter pub get
-          
-          # Bersihkan cache gradle untuk fix error "unable to resolve class JsonGenerator"
-          cd android
-          chmod +x gradlew
-          ./gradlew clean
-          cd ..
-          
-          # Build APK
+
+          # 3. Cari dan eksekusi gradlew clean (Fix error JsonGenerator)
+          GRADLEW_PATH=$(find . -name "gradlew" -printf '%p' -quit)
+          if [ -n "$GRADLEW_PATH" ]; then
+            chmod +x "$GRADLEW_PATH"
+            # Masuk ke folder android untuk jalankan clean
+            cd $(dirname "$GRADLEW_PATH")
+            ./gradlew clean
+            cd ..
+          fi
+
+          # 4. Build APK
           flutter build apk --release
-          
-          # Cari path APK dan simpan ke environment variable
-          APK_PATH=$(find build/app/outputs/flutter-apk/ -name "app-release.apk" | head -n 1)
-          echo "FINAL_APK_PATH=$APK_PATH" >> $GITHUB_ENV
+
+          # 5. Cari file APK secara spesifik
+          FINAL_PATH=$(find build/app/outputs/flutter-apk/ -name "app-release.apk" | head -n 1)
+          if [ -z "$FINAL_PATH" ]; then
+             # Jika folder default gagal, cari semua file .apk yang ada kata 'release'
+             FINAL_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
+          fi
+
+          if [ -n "$FINAL_PATH" ]; then
+            # Ubah path ke path absolut agar terbaca di step berikutnya
+            echo "FINAL_APK_PATH=$(pwd)/$FINAL_PATH" >> $GITHUB_ENV
+            echo "APK ditemukan di: $FINAL_PATH"
+          else
+            echo "ERROR: File APK tidak ditemukan setelah build."
+            exit 1
+          fi
 
       - name: Send APK to Telegram
         if: success()
         run: |
-          # Perbaikan URL: Harus pakai /bot<token>/ dan endpoint /sendDocument
+          # Perbaikan URL API Telegram (WAJIB ada /bot di depan token)
           curl -v -F document=@"${{ env.FINAL_APK_PATH }}" \
           "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
           -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -F parse_mode="Markdown" \
-          -F "caption=✅ *BUILD SUKSES!*%0A%0A📦 Akhirnya mendarat juga!%0A⚡ Build by Azril"
+          -F "caption=✅ **BUILD SUKSES!**%0A%0A📦 File APK siap diinstall.%0A⚡ Build by Azril"
