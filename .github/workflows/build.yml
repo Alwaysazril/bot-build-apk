@@ -17,7 +17,6 @@ jobs:
         run: |
           if [ -f project.zip ]; then
             unzip -o project.zip
-            # Menghapus zip setelah ekstrak agar tidak ikut ter-scan nantinya
             rm project.zip
           else
             echo "Warning: project.zip not found."
@@ -38,53 +37,56 @@ jobs:
 
       - name: Build APK Release
         run: |
-          # 1. Cari root project Flutter (di mana ada pubspec.yaml)
+          # 1. Cari root project Flutter
           FLUTTER_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
           if [ -z "$FLUTTER_ROOT" ]; then
-            echo "ERROR: pubspec.yaml tidak ditemukan! Pastikan isi zip benar."
+            echo "ERROR: pubspec.yaml tidak ditemukan!"
             exit 1
           fi
           cd "$FLUTTER_ROOT"
-          echo "Bekerja di direktori: $(pwd)"
 
-          # 2. Get Dependencies
+          # 2. FIX: Migrasi otomatis ke Android v2 Embedding
+          # Mengganti FlutterApplication (v1) ke FlutterActivity (v2) di AndroidManifest.xml
+          MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST_PATH" ]; then
+            sed -i 's/io.flutter.app.FlutterApplication/android.app.Application/g' "$MANIFEST_PATH"
+            echo "Migrasi AndroidManifest.xml ke v2 selesai."
+          fi
+
+          # 3. Get Dependencies
           flutter pub get
 
-          # 3. Cari dan eksekusi gradlew clean (Fix error JsonGenerator)
+          # 4. Clean Gradle
           GRADLEW_PATH=$(find . -name "gradlew" -printf '%p' -quit)
           if [ -n "$GRADLEW_PATH" ]; then
             chmod +x "$GRADLEW_PATH"
-            # Masuk ke folder android untuk jalankan clean
             cd $(dirname "$GRADLEW_PATH")
             ./gradlew clean
             cd ..
           fi
 
-          # 4. Build APK
+          # 5. Build APK
           flutter build apk --release
 
-          # 5. Cari file APK secara spesifik
+          # 6. Identifikasi Path APK
           FINAL_PATH=$(find build/app/outputs/flutter-apk/ -name "app-release.apk" | head -n 1)
           if [ -z "$FINAL_PATH" ]; then
-             # Jika folder default gagal, cari semua file .apk yang ada kata 'release'
              FINAL_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
           fi
 
           if [ -n "$FINAL_PATH" ]; then
-            # Ubah path ke path absolut agar terbaca di step berikutnya
             echo "FINAL_APK_PATH=$(pwd)/$FINAL_PATH" >> $GITHUB_ENV
-            echo "APK ditemukan di: $FINAL_PATH"
           else
-            echo "ERROR: File APK tidak ditemukan setelah build."
+            echo "ERROR: File APK tidak ditemukan."
             exit 1
           fi
 
       - name: Send APK to Telegram
         if: success()
         run: |
-          # Perbaikan URL API Telegram (WAJIB ada /bot di depan token)
+          # Perbaikan URL Endpoint Telegram API
           curl -v -F document=@"${{ env.FINAL_APK_PATH }}" \
           "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
           -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -F parse_mode="Markdown" \
-          -F "caption=✅ **BUILD SUKSES!**%0A%0A📦 File APK siap diinstall.%0A⚡ Build by Azril"
+          -F "caption=✅ **BUILD SUKSES!**%0A%0A📦 File APK siap diinstall."
