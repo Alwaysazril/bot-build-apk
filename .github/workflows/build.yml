@@ -3,7 +3,6 @@ name: Flutter Build APK
 on:
   repository_dispatch:
     types: [telegram_build]
-  workflow_dispatch:
 
 jobs:
   build:
@@ -11,17 +10,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Extract Project Zip
-        run: |
-          if [ -f project.zip ]; then
-            unzip -o project.zip
-            rm project.zip
-          fi
+        uses: actions/checkout@v3
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -29,45 +21,16 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: '3.19.0' # Versi stable
           channel: 'stable'
-          cache: true
+
+      - name: Get Dependencies
+        run: flutter pub get
 
       - name: Build APK Release
-        run: |
-          # 1. Masuk ke folder project
-          FLUTTER_ROOT=$(find . -name "pubspec.yaml" -printf '%h' -quit)
-          cd "$FLUTTER_ROOT"
-
-          # 2. Fix Manifest V2 (Sed murni, anti error)
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            sed -i 's/io.flutter.app.FlutterApplication/android.app.Application/g' "$MANIFEST"
-            if ! grep -q "flutterEmbedding" "$MANIFEST"; then
-              sed -i '/<activity/a \        <meta-data android:name="flutterEmbedding" android:value="2" />' "$MANIFEST"
-            fi
-          fi
-
-          # 3. Build APK
-          flutter pub get
-          flutter build apk --release
-
-          # 4. Simpan path file
-          APK_FILE=$(find build/app/outputs/flutter-apk/ -name "app-release.apk" | head -n 1)
-          echo "FINAL_APK_PATH=$(pwd)/$APK_FILE" >> $GITHUB_ENV
+        run: flutter build apk --release
 
       - name: Send APK to Telegram
-        if: success()
         run: |
-          curl -v -F document=@"${{ env.FINAL_APK_PATH }}" \
-          "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
-          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -F parse_mode="Markdown" \
-          -F "caption=✅ **BUILD SUKSES!**%0A📦 APK siap diunduh."
-
-      - name: Notify Failure
-        if: failure()
-        run: |
-          curl -s -X POST "https://telegram.org{{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="❌ **BUILD GAGAL!** Periksa log GitHub."
+          curl -F document=@"build/app/outputs/flutter-apk/app-release.apk" \
+          "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument?chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&caption=✅ **Build Selesai!**%0A%0A📦 File: app-release.apk%0A⚡ Build by Web2Apk Azril"
